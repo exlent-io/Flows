@@ -22,6 +22,26 @@ async function getSession(body) {
 
 const handler = async (event) => {
   // TODO implement
+  if (event.httpMethod == "OPTIONS") {
+    return {
+      statusCode: 200, headers: {
+        "access-control-allow-headers": "*",
+        "access-control-allow-methods": "DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT",
+        "access-control-allow-origin": event.headers.origin
+      }
+    }
+  }
+  const response = await doHandle(event)
+  if (response.headers == null) {
+    response.headers = {}
+  }
+  if (response.headers['access-control-allow-origin'] == null) {
+    response.headers["access-control-allow-origin"] = event.headers.origin
+  }
+  return response
+}
+
+async function doHandle(event) {
   if (event.httpMethod != "POST") {
     return { statusCode: 404, body: 'POST only' }
   }
@@ -42,9 +62,12 @@ const handler = async (event) => {
   ddb = new AWS.DynamoDB.DocumentClient()
 
   bd.auth = auth.data
-  return router[event.path](bd)
-
-
+  try {
+    return await router[event.path](bd)
+  } catch(e) {
+    console.log(e)
+    return { statusCode: 500, body: e.toString()}
+  }
 };
 
 router['/create-flow'] = async function (event) {
@@ -112,40 +135,58 @@ router['/get-flow'] = async function (event) {
 };
 
 router['/update-flow'] = async function (event) {
-  for (key in ['n']) {
+  for (const key of ['flow']) {
     if (event[key] == null) {
       return { statusCode: 400, body: 'missing key' }
     }
   }
-
-  let exp = "set"
-  const expAttr = {}
-  for (key in ['ds','tp']) {
-    if (event[key] != null) {
-      exp += ` ${key} = :${key}`
-      expAttr[`:${key}`] = event[key]
+  const flow = event.flow
+  for (const key of ['n', 'gid', 'flowid']) {
+    if (flow[key] == null) {
+      return { statusCode: 400, body: 'invalid flow' }
     }
   }
-
-  var params = {
+  if (flow.gid !== event.auth.gid) {
+    return { statusCode: 401, body: 'invalid gid' }
+  }
+  const setExp = []
+  const rmExp = []
+  const expAttr = {}
+  for (const key of ['ds', 'tp', 'gdrive']) {
+    if (flow[key] != null) {
+      setExp.push(`${key} = :${key}`)
+      expAttr[`:${key}`] = flow[key]
+    } else {
+      rmExp.push(`${key}`)
+    }
+  }
+  console.log("5")
+  let exp = ""
+  if (setExp.length > 0) {
+    exp += `set ${setExp.join(', ')}`
+  }
+  if (rmExp.length > 0) {
+    exp += ` remove${rmExp.join(', ')}`
+  }
+  console.log("6")
+  const params = {
     TableName: tableName,
-    Key:{
-        "gid": event.auth.gid,
-        "n": event.n
+    Key: {
+      "gid": event.auth.gid,
+      "flowid": flow.flowid
     },
-    UpdateExpression: "set info.rating = :r, info.plot=:p, info.actors=:a",
-    ExpressionAttributeValues:{
-        ":r":5.5,
-        ":p":"Everything happens all at once.",
-        ":a":["Larry", "Moe", "Curly"]
-    },
-    ReturnValues:"UPDATED_NEW"
+    UpdateExpression: exp,
+    ExpressionAttributeValues: expAttr,
+    ReturnValues: "UPDATED_NEW"
   };
 
   console.log("Updating the item...");
-  ddb.update(params, function(err, data) {
-
-  return { statusCode: 200, body: JSON.stringify(event) }
+  try {
+    const r = await ddb.update(params).promise()
+    return { statusCode: 200, body: JSON.stringify(r) }
+  } catch (error) {
+    return { statusCode: 500, body: `query ddb err: ${error.stack}` }
+  }
 };
 
 router['/delete-flow'] = async function (event) {
