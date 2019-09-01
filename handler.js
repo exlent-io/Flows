@@ -115,7 +115,7 @@ router['/list-flows'] = async function (event) {
 
 
 router['/get-flow'] = async function (event) {
-  if (event.n == null) {
+  if (event.flowid == null) {
     return { statusCode: 400, body: 'missing key' }
   }
 
@@ -124,8 +124,8 @@ router['/get-flow'] = async function (event) {
     r = await ddb.get({
       TableName: tableName,
       Key: {
-        "gid": gid,
-        "n": event.n
+        "gid": event.auth.gid,
+        "flowid": event.flowid
       }
     }).promise()
     return { statusCode: 200, body: JSON.stringify(r) }
