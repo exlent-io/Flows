@@ -83,12 +83,11 @@ router['/create-flow'] = async function (event) {
         'gid': event.auth.gid,
         'flowid': flowid,
         // name
-        'n': event.n
+        'n': event.n,
+        'p': JSON.stringify([event.auth.uid, 'write']),
+        'opt': JSON.stringify([]),
+        'ver': Math.random().toString()
         // do not put empty array or empty string with doc lib or exception occurs
-        // data source
-        // 'ds': [],
-        // template
-        // 'tp': []
       }
     }).promise()
     return { statusCode: 200, body: JSON.stringify({ 'flowid': flowid }) }
@@ -107,6 +106,12 @@ router['/list-flows'] = async function (event) {
         ":gid": event.auth.gid
       }
     }).promise()
+    r = r.Items
+    console.log(1, r)
+    r.forEach(item => ['opt', 'p'].forEach(it => item[it] = JSON.parse(item[it])))
+    console.log(2, r)
+    r = r.filter(it => it.p.reduce(((a,b) => a || b[0] == 'group' || b[0] == event.auth.uid), false))
+    console.log(3, r)
     return { statusCode: 200, body: JSON.stringify(r) }
   } catch (error) {
     return { statusCode: 500, body: `query ddb err: ${error.stack}` }
@@ -128,6 +133,12 @@ router['/get-flow'] = async function (event) {
         "flowid": event.flowid
       }
     }).promise()
+    r = r.Item
+
+    ['opt', 'p'].forEach(it => r[it] = JSON.parse(r[it]))
+    if (r.p.reduce(((a,b) => a || b[0] == 'group' || b[0] == event.auth.uid), false) === false) {
+      return { statusCode: 401, body: "access denied" }
+    }
     return { statusCode: 200, body: JSON.stringify(r) }
   } catch (error) {
     return { statusCode: 500, body: `query ddb err: ${error.stack}` }
@@ -141,7 +152,7 @@ router['/update-flow'] = async function (event) {
     }
   }
   const flow = event.flow
-  for (const key of ['n', 'gid', 'flowid']) {
+  for (const key of ['n', 'gid', 'flowid', 'p', 'opt']) {
     if (flow[key] == null) {
       return { statusCode: 400, body: 'invalid flow' }
     }
@@ -149,43 +160,48 @@ router['/update-flow'] = async function (event) {
   if (flow.gid !== event.auth.gid) {
     return { statusCode: 401, body: 'invalid gid' }
   }
-  const setExp = []
-  const rmExp = []
-  const expAttr = {}
-  for (const key of ['ds', 'tp', 'gdrive']) {
-    if (flow[key] != null) {
-      setExp.push(`${key} = :${key}`)
-      expAttr[`:${key}`] = flow[key]
-    } else {
-      rmExp.push(`${key}`)
-    }
+
+  const clientVer = flow.hasOwnProperty('ver') ? flow.ver : null
+
+  let r = null
+  try {
+    r = await ddb.get({
+      TableName: tableName,
+      Key: {
+        "gid": flow.gid,
+        "flowid": flow.flowid
+      }
+    }).promise()
+  } catch (e) {
+    return { statusCode: 500, body: `query ddb err: ${e.stack}` }
   }
-  console.log("5")
-  let exp = ""
-  if (setExp.length > 0) {
-    exp += `set ${setExp.join(', ')}`
+  r = r.Item
+  if (JSON.parse(r.p).reduce(((a,b) => a || ((b[0] == 'group' || b[0] == event.auth.uid) && b[1] == 'edit')), false) === false) {
+    return { statusCode: 401, body: "access denied" }
   }
-  if (rmExp.length > 0) {
-    exp += ` remove${rmExp.join(', ')}`
-  }
-  console.log("6")
+  
+  console.log("Access granted...");
+
+  const setExpr = ['p', 'opt', 'ver'].map(it => `${it} = :${it}`, '').join(', ')
+  const eAttr = ['p', 'opt'].reduce((a, b) => {a[`:${b}`] = JSON.stringify(flow[b]); return a; }, {})
+  eAttr[':ver'] = Math.random().toString()
+  eAttr[':oldVer'] = clientVer || r.ver
   const params = {
     TableName: tableName,
-    Key: {
-      "gid": event.auth.gid,
-      "flowid": flow.flowid
-    },
-    UpdateExpression: exp,
-    ExpressionAttributeValues: expAttr,
-    ReturnValues: "UPDATED_NEW"
+    Key: ['gid', 'flowid'].reduce((a, b) => {a[b] = flow[b];return a} , {}),
+    UpdateExpression: `set ${setExpr}`,
+    ConditionExpression: "ver = :oldVer",
+    ExpressionAttributeValues: eAttr,
+    ReturnValues: "ALL_NEW"
   };
 
   console.log("Updating the item...");
+  console.log(params);
   try {
     const r = await ddb.update(params).promise()
     return { statusCode: 200, body: JSON.stringify(r) }
-  } catch (error) {
-    return { statusCode: 500, body: `query ddb err: ${error.stack}` }
+  } catch (e) {
+    return { statusCode: 500, body: `query ddb err: ${e.stack}` }
   }
 };
 
