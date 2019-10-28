@@ -8,6 +8,8 @@ AWS.config.update({
 
 let ddb = null;
 const tableName = 'exlentflow';
+const bucketName = 'exlent-pipeline';
+
 const router = {};
 
 const axios = require('axios').default;
@@ -209,6 +211,27 @@ router['/delete-flow'] = async function (event) {
         body: JSON.stringify(event),
     };
     return response;
+};
+
+router['/submit-flow'] = async function (event) {
+    if (event.data == null || event.flowid == null) {
+        return { statusCode: 400, body: 'missing key' };
+    }
+
+    const jobid = uuidv4().replace(/-/g, '');
+    try {
+        const objectParams = {
+            Bucket: bucketName,
+            Key: `${event.auth.gid}/${event.flowid}/${jobid}`,
+            Body: JSON.stringify({ data: event.data, who: {gid:event.auth.gid, uid:event.auth.uid} }),
+            Metadata: { 'status': 'new' }
+        };
+        // Create object upload promise
+        await new AWS.S3({ apiVersion: '2006-03-01' }).putObject(objectParams).promise();
+        return { statusCode: 200, body: JSON.stringify({ 'jobid': jobid }) };
+    } catch (error) {
+        return { statusCode: 500, body: `write s3 err: ${error.stack}` };
+    }
 };
 
 exports.handler = handler;
