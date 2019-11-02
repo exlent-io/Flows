@@ -87,12 +87,12 @@ router['/create-flow'] = async function (event) {
                 'flowid': flowid,
                 // name
                 'n': event.n,
-                'p': JSON.stringify([event.auth.uid, 'write']),
+                'p': JSON.stringify([event.auth.uid, 'edit']),
                 'opt': JSON.stringify([]),
                 'ver': Math.random().toString()
                 // do not put empty array or empty string with doc lib or exception occurs
             },
-            ReturnValues: 'ALL_NEW'
+            ReturnValues: 'ALL_OLD'
         }).promise();
         return { statusCode: 200, body: JSON.stringify({ 'flow': flow }) };
     } catch (error) {
