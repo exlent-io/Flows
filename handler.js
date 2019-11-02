@@ -87,7 +87,7 @@ router['/create-flow'] = async function (event) {
                 'flowid': flowid,
                 // name
                 'n': event.n,
-                'p': JSON.stringify([event.auth.uid, 'edit']),
+                'p': JSON.stringify([[event.auth.uid, 'edit']]),
                 'opt': JSON.stringify([]),
                 'ver': Math.random().toString()
                 // do not put empty array or empty string with doc lib or exception occurs
