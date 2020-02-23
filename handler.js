@@ -182,8 +182,9 @@ router['/update-flow'] = async function (event) {
 
     console.log('Access granted...');
 
-    const setExpr = ['p', 'opt', 'ver'].map(it => `${it} = :${it}`, '').join(', ');
+    const setExpr = ['p', 'opt', 'ver', 'n'].map(it => `${it} = :${it}`, '').join(', ');
     const eAttr = ['p', 'opt'].reduce((a, b) => { a[`:${b}`] = JSON.stringify(flow[b]); return a; }, {});
+    eAttr[':n'] = flow['n'];
     eAttr[':ver'] = Math.random().toString();
     eAttr[':oldVer'] = clientVer || r.ver;
     const params = {
